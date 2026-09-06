@@ -1,12 +1,44 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { sampleResume, newEntry, templates } from "../src/model";
 import { ResumePDF, registerFonts } from "../src/document";
 import { generateDocx } from "../src/exporter";
+import { readPdfPageText } from "../src/pdf-text";
 import { mkdir, writeFile } from "node:fs/promises";
 import JSZip from "jszip";
 registerFonts(`${process.cwd()}/public/`);
 describe("downloaded documents", () => {
+  it("extracts PDF text when streams have no async iterator, as in older Safari", async () => {
+    const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const buffer = await renderToBuffer(<ResumePDF doc={sampleResume()} />);
+    const task = getDocument({ data: new Uint8Array(buffer) });
+    try {
+      const pdf = await task.promise;
+      let text = "";
+      for (let n = 1; n <= pdf.numPages; n++) {
+        const page = await pdf.getPage(n);
+        const original = page.streamTextContent.bind(page);
+        const streams: ReadableStream[] = [];
+        vi.spyOn(page, "streamTextContent").mockImplementation((options) => {
+          const stream = original(options);
+          Object.defineProperty(stream, Symbol.asyncIterator, {
+            value: undefined,
+          });
+          streams.push(stream);
+          return stream;
+        });
+        const content = await readPdfPageText(page);
+        text += content.items.map((i) => ("str" in i ? i.str : "")).join(" ");
+        expect(streams.length).toBeGreaterThan(0);
+        expect(streams.every((stream) => !stream.locked)).toBe(true);
+      }
+      expect(text).toContain("Alex Morgan");
+      expect(text).toContain("alex@example.com");
+      expect(text).toContain("Automated monthly reporting");
+    } finally {
+      await task.destroy();
+    }
+  }, 30000);
   it("creates selectable A4 PDFs for every template", async () => {
     const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
     await mkdir("test-results", { recursive: true });

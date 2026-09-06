@@ -13,6 +13,7 @@ import { Modal, Field, Select, Loading } from "./ui";
 import { generatePdf, generateDocx, documentText } from "./exporter";
 import { downloadBlob } from "./storage";
 import type { DocumentKind } from "./document";
+import type { PdfInfo } from "./PdfPreview";
 const PdfPreview = lazy(() => import("./PdfPreview"));
 export function usePDF(
   doc: Resume,
@@ -149,7 +150,7 @@ export function ExportDialog({
   onDownloaded: (label: string) => void;
 }) {
   const { blob, error, retry } = usePDF(doc, kind, 100);
-  const [info, setInfo] = useState({ pages: 0, text: "" }),
+  const [info, setInfo] = useState<PdfInfo>({ pages: 0, text: "" }),
     [format, setFormat] = useState(
       doc.application.requestedFormat === "docx" ? "docx" : "pdf",
     ),
@@ -349,7 +350,7 @@ export function ExportDialog({
             useful check, not a simulation of every recruitment platform.
           </p>
           <pre className="text-check">
-            {info.text || "Extracting PDF text…"}
+            {info.textError || info.text || "Extracting PDF text…"}
           </pre>
         </>
       )}

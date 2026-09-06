@@ -1,11 +1,47 @@
 import { useEffect, useRef, useState } from "react";
 import { pdfjs, pdfOptions } from "./pdfjs";
+import { readPdfPageText } from "./pdf-text";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { LoaderCircle, AlertCircle } from "lucide-react";
-function PdfPage({ pdf, page }: { pdf: PDFDocumentProxy; page: number }) {
+export type PdfInfo = { pages: number; text: string; textError?: string };
+function PreviewRecovery({ url, retry }: { url: string; retry: () => void }) {
+  return (
+    <div className="notice error" role="alert">
+      <AlertCircle size={18} />
+      <div>
+        <p>
+          This preview could not be displayed. You can still open or save the
+          PDF.
+        </p>
+        {url && (
+          <a
+            className="text-button"
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Open PDF
+          </a>
+        )}
+        <button onClick={retry}>Try preview again</button>
+      </div>
+    </div>
+  );
+}
+function PdfPage({
+  pdf,
+  page,
+  url,
+}: {
+  pdf: PDFDocumentProxy;
+  page: number;
+  url: string;
+}) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(page === 1);
+  const [error, setError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([e]) => {
@@ -21,6 +57,7 @@ function PdfPage({ pdf, page }: { pdf: PDFDocumentProxy; page: number }) {
   }, []);
   useEffect(() => {
     if (!visible) return;
+    setError(false);
     let cancel = false;
     let task:
       | ReturnType<Awaited<ReturnType<PDFDocumentProxy["getPage"]>>["render"]>
@@ -38,17 +75,27 @@ function PdfPage({ pdf, page }: { pdf: PDFDocumentProxy; page: number }) {
         return task.promise;
       })
       .catch((e) => {
-        if (e.name !== "RenderingCancelledException" && !cancel)
-          console.error("Page preview failed");
+        if (e.name !== "RenderingCancelledException" && !cancel) {
+          console.error("Page preview failed", e);
+          setError(true);
+        }
       });
     return () => {
       cancel = true;
       task?.cancel();
     };
-  }, [pdf, page, visible]);
+  }, [pdf, page, visible, attempt]);
   return (
     <div className="pdf-page" ref={box}>
-      <canvas ref={canvas} aria-label={`Document page ${page}`} role="img" />
+      {error && (
+        <PreviewRecovery url={url} retry={() => setAttempt((n) => n + 1)} />
+      )}
+      <canvas
+        ref={canvas}
+        style={error ? { display: "none" } : undefined}
+        aria-label={`Document page ${page}`}
+        role="img"
+      />
     </div>
   );
 }
@@ -57,17 +104,26 @@ export default function PdfPreview({
   onInfo,
 }: {
   blob: Blob;
-  onInfo?: (info: { pages: number; text: string }) => void;
+  onInfo?: (info: PdfInfo) => void;
 }) {
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(false);
+  const [textError, setTextError] = useState("");
+  const [url, setUrl] = useState("");
+  const [attempt, setAttempt] = useState(0);
   const infoRef = useRef(onInfo);
   infoRef.current = onInfo;
+  useEffect(() => {
+    const next = URL.createObjectURL(blob);
+    setUrl(next);
+    return () => URL.revokeObjectURL(next);
+  }, [blob]);
   useEffect(() => {
     let active = true;
     let task: ReturnType<typeof pdfjs.getDocument> | undefined;
     setPdf(null);
-    setError("");
+    setError(false);
+    setTextError("");
     void blob
       .arrayBuffer()
       .then(async (data) => {
@@ -76,39 +132,49 @@ export default function PdfPreview({
         const loaded = await task.promise;
         if (!active) return;
         setPdf(loaded);
-        let text = "";
-        for (let p = 1; p <= loaded.numPages; p++) {
+        infoRef.current?.({ pages: loaded.numPages, text: "" });
+        // Text checking is independent of painting the PDF. A text failure must
+        // never replace otherwise readable pages with an error screen.
+        try {
+          let text = "";
+          for (let p = 1; p <= loaded.numPages; p++) {
+            if (!active) return;
+            const page = await loaded.getPage(p);
+            const content = await readPdfPageText(page);
+            text +=
+              `Page ${p}\n` +
+              content.items
+                .map((i) => ("str" in i ? i.str + (i.hasEOL ? "\n" : " ") : ""))
+                .join("") +
+              "\n\n";
+          }
+          if (active) infoRef.current?.({ pages: loaded.numPages, text });
+        } catch (e) {
           if (!active) return;
-          const page = await loaded.getPage(p);
-          const content = await page.getTextContent();
-          text +=
-            `Page ${p}\n` +
-            content.items
-              .map((i) => ("str" in i ? i.str + (i.hasEOL ? "\n" : " ") : ""))
-              .join("") +
-            "\n\n";
+          console.error("PDF text check failed", e);
+          const message =
+            "The plain-text check is unavailable. You can still preview and download the PDF.";
+          setTextError(message);
+          infoRef.current?.({
+            pages: loaded.numPages,
+            text: "",
+            textError: message,
+          });
         }
-        if (active) infoRef.current?.({ pages: loaded.numPages, text });
       })
       .catch((e) => {
-        if (active)
-          setError(
-            e.message ||
-              "Preview unavailable. You can still download the document.",
-          );
+        if (active) {
+          console.error("PDF preview could not open", e);
+          setError(true);
+        }
       });
     return () => {
       active = false;
       void task?.destroy();
     };
-  }, [blob]);
+  }, [blob, attempt]);
   if (error)
-    return (
-      <div className="notice error">
-        <AlertCircle size={18} />
-        {error}
-      </div>
-    );
+    return <PreviewRecovery url={url} retry={() => setAttempt((n) => n + 1)} />;
   if (!pdf)
     return (
       <div className="preview-loading">
@@ -118,8 +184,13 @@ export default function PdfPreview({
     );
   return (
     <div className="pdf-pages">
+      {textError && (
+        <div className="notice" role="status">
+          {textError}
+        </div>
+      )}
       {Array.from({ length: pdf.numPages }, (_, i) => (
-        <PdfPage key={i + 1} pdf={pdf} page={i + 1} />
+        <PdfPage key={i + 1} pdf={pdf} page={i + 1} url={url} />
       ))}
     </div>
   );

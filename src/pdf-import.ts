@@ -1,4 +1,5 @@
 import { pdfjs, pdfOptions } from "./pdfjs";
+import { readPdfPageText } from "./pdf-text";
 import type { Extracted } from "./importer";
 export async function extractPDF(
   file: File,
@@ -37,7 +38,7 @@ export async function extractPDF(
       if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
       progress(`Reading page ${p} of ${doc.numPages}…`);
       const page = await doc.getPage(p);
-      const tc = await page.getTextContent();
+      const tc = await readPdfPageText(page);
       const items = tc.items.filter(
         (i): i is import("pdfjs-dist/types/src/display/api").TextItem =>
           "str" in i,
