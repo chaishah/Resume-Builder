@@ -47,7 +47,7 @@ jobs:
           enablement: true
       - name: Deploy
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
       - name: Explain Pages setup requirement
         if: failure()
         run: |
