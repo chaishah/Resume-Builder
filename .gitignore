@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.tsbuildinfo
+public/fonts/
+public/ocr/
+public/pdf-assets/
+.env*
+!.env.example
+test-results/
+.DS_Store
