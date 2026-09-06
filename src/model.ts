@@ -95,6 +95,28 @@ export const templates = [
   },
 ] as const;
 export type TemplateId = (typeof templates)[number]["id"];
+export const designSchema = z.object({
+  template: z.enum([
+    "essential",
+    "slate",
+    "editorial",
+    "graduate",
+    "professional",
+  ]),
+  accent: z.enum(["#253444", "#244d6b", "#245849", "#493f3a", "#363c59"]),
+  font: z.enum(["Inter", "Source Serif"]),
+  spacing: z.enum(["comfortable", "balanced", "compact"]),
+  fontSize: z.number().min(10).max(12),
+  marginX: z.number().min(32).max(64).default(48),
+  marginY: z.number().min(32).max(64).default(43),
+  pageLimit: z.number().int().min(1).max(20),
+});
+export const careerStages = [
+  "experienced",
+  "graduate",
+  "change",
+  "returning",
+] as const;
 export const resumeSchema = z.object({
   schemaVersion: z.literal(1),
   id: z.string().max(100),
@@ -104,6 +126,7 @@ export const resumeSchema = z.object({
   updatedAt: text,
   parentId: z.string().optional(),
   locale: z.literal("en-AU"),
+  careerStage: z.enum(careerStages).default("experienced"),
   profile: z.object({
     name: text,
     headline: text,
@@ -115,23 +138,11 @@ export const resumeSchema = z.object({
     summary: text,
   }),
   sections: z.array(sectionSchema).max(40),
-  design: z.object({
-    template: z.enum([
-      "essential",
-      "slate",
-      "editorial",
-      "graduate",
-      "professional",
-    ]),
-    accent: z.enum(["#253444", "#244d6b", "#245849", "#493f3a", "#363c59"]),
-    font: z.enum(["Inter", "Source Serif"]),
-    spacing: z.enum(["comfortable", "balanced", "compact"]),
-    fontSize: z.number().min(10).max(12),
-    pageLimit: z.number().int().min(1).max(20),
-  }),
+  design: designSchema,
   application: z.object({
     role: text,
     company: text,
+    jobUrl: text.default(""),
     jobAd: text,
     requestedFormat: z.enum(["pdf", "docx", "either"]),
     deadline: text,
@@ -174,11 +185,20 @@ export type Snapshot = {
   createdAt: string;
   document: Resume;
 };
+export const presetSchema = z.object({
+  id: z.string().max(100),
+  name: z.string().min(1).max(100),
+  design: designSchema,
+  sectionOrder: z.array(z.enum(sectionTypes)).max(40),
+  savedAt: text,
+});
+export type TemplatePreset = z.infer<typeof presetSchema>;
 export const backupSchema = z.object({
   kind: z.literal("resume-studio-backup"),
   version: z.literal(1),
   exportedAt: text,
   documents: z.array(resumeSchema).max(100),
+  presets: z.array(presetSchema).max(100).default([]),
   snapshots: z
     .array(
       z.object({
@@ -233,6 +253,9 @@ export function newResume(stage = "experienced"): Resume {
     createdAt: now,
     updatedAt: now,
     locale: "en-AU",
+    careerStage: careerStages.includes(stage as Resume["careerStage"])
+      ? (stage as Resume["careerStage"])
+      : "experienced",
     profile: {
       name: "",
       headline: "",
@@ -253,11 +276,14 @@ export function newResume(stage = "experienced"): Resume {
       font: "Inter",
       spacing: "balanced",
       fontSize: 11,
+      marginX: 48,
+      marginY: 43,
       pageLimit: 2,
     },
     application: {
       role: "",
       company: "",
+      jobUrl: "",
       jobAd: "",
       requestedFormat: "pdf",
       deadline: "",

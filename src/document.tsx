@@ -1,3 +1,4 @@
+import { editId } from "./preview-navigation";
 import {
   Document,
   Page,
@@ -35,9 +36,11 @@ export function registerFonts(root: string) {
 export function ResumePDF({
   doc,
   kind = "resume",
+  onLayout,
 }: {
   doc: Resume;
   kind?: DocumentKind;
+  onLayout?: (layout: unknown) => void;
 }) {
   const { design, profile } = doc;
   const gap =
@@ -49,9 +52,9 @@ export function ResumePDF({
   const accent = design.accent;
   const styles = StyleSheet.create({
     page: {
-      paddingTop: 43,
-      paddingBottom: 43,
-      paddingHorizontal: 48,
+      paddingTop: design.marginY,
+      paddingBottom: design.marginY,
+      paddingHorizontal: design.marginX,
       fontFamily: design.font,
       fontSize: design.fontSize,
       lineHeight: 1.4,
@@ -100,15 +103,20 @@ export function ResumePDF({
     },
     paragraph: { marginBottom: 12 },
   });
-  const renderEntry = (e: Entry) => (
+  const renderEntry = (e: Entry, sectionId: string) => (
     <View key={e.id} style={styles.entry}>
       {!!e.title && (
-        <Text style={styles.title} minPresenceAhead={28}>
+        <Text
+          data-edit-target={editId(sectionId, e.id, "title")}
+          style={styles.title}
+          minPresenceAhead={28}
+        >
           {e.title}
         </Text>
       )}
       {!![e.subtitle, e.location, dateRange(e)].filter(Boolean).length && (
         <Text
+          data-edit-target={editId(sectionId, e.id, "subtitle")}
           style={styles.meta}
           minPresenceAhead={e.description || e.bullets.length ? 16 : 0}
         >
@@ -116,35 +124,64 @@ export function ResumePDF({
         </Text>
       )}
       {!!e.description && (
-        <Text style={styles.description} orphans={2} widows={2}>
+        <Text
+          data-edit-target={editId(sectionId, e.id, "description")}
+          style={styles.description}
+          orphans={2}
+          widows={2}
+        >
           {e.description}
         </Text>
       )}
-      {e.bullets
-        .filter((b) => b.trim())
-        .map((b, i) => (
+      {e.bullets.map((b, i) =>
+        b.trim() ? (
           <View key={i} style={styles.bullet}>
             <Text style={styles.dot}>•</Text>
-            <Text style={styles.bulletText} orphans={2} widows={2}>
+            <Text
+              data-edit-target={editId(sectionId, e.id, `bullet-${i}`)}
+              style={styles.bulletText}
+              orphans={2}
+              widows={2}
+            >
               {b}
             </Text>
           </View>
-        ))}
+        ) : null,
+      )}
     </View>
   );
   return (
     <Document
+      onRender={(params) =>
+        onLayout?.(
+          (params as { _INTERNAL__LAYOUT__DATA_?: unknown })
+            ._INTERNAL__LAYOUT__DATA_,
+        )
+      }
       title={`${profile.name || "Résumé"}${kind === "letter" ? " · Cover letter" : kind === "criteria" ? " · Selection criteria" : ""}`}
       author={profile.name}
       language="en-AU"
     >
       <Page size="A4" style={styles.page} wrap>
         <View style={styles.top} wrap={false}>
-          <Text style={styles.name}>{profile.name || "Your name"}</Text>
+          <Text
+            data-edit-target={editId("profile", "", "name")}
+            style={styles.name}
+          >
+            {profile.name || "Your name"}
+          </Text>
           {!!profile.headline && (
-            <Text style={styles.headline}>{profile.headline}</Text>
+            <Text
+              data-edit-target={editId("profile", "", "headline")}
+              style={styles.headline}
+            >
+              {profile.headline}
+            </Text>
           )}
-          <Text style={styles.contacts}>
+          <Text
+            data-edit-target={editId("profile", "", "email")}
+            style={styles.contacts}
+          >
             {[profile.email, profile.phone, profile.location]
               .filter(Boolean)
               .join("  |  ")}
@@ -154,23 +191,46 @@ export function ResumePDF({
             .filter((s) => s.trim())
             .map((value, i) =>
               safeLink(value.trim()) ? (
-                <Link key={i} src={safeLink(value.trim())!} style={styles.link}>
+                <Link
+                  data-edit-target={
+                    i === 0 ? editId("profile", "", "links") : undefined
+                  }
+                  key={i}
+                  src={safeLink(value.trim())!}
+                  style={styles.link}
+                >
                   {value.trim()}
                 </Link>
               ) : (
-                <Text key={i} style={styles.contacts}>
+                <Text
+                  data-edit-target={
+                    i === 0 ? editId("profile", "", "links") : undefined
+                  }
+                  key={i}
+                  style={styles.contacts}
+                >
                   {value.trim()}
                 </Text>
               ),
             )}
           {!!profile.workRights && (
-            <Text style={styles.contacts}>{profile.workRights}</Text>
+            <Text
+              data-edit-target={editId("profile", "", "workRights")}
+              style={styles.contacts}
+            >
+              {profile.workRights}
+            </Text>
           )}
         </View>
         {kind === "resume" ? (
           <>
             {!!profile.summary && (
-              <Text style={styles.summary} orphans={2} widows={2}>
+              <Text
+                data-edit-target={editId("profile", "", "summary")}
+                style={styles.summary}
+                orphans={2}
+                widows={2}
+              >
                 {profile.summary}
               </Text>
             )}
@@ -178,10 +238,14 @@ export function ResumePDF({
               .filter((s) => !s.hidden && s.entries.some(hasEntry))
               .map((s) => (
                 <View key={s.id} break={s.pageBreak}>
-                  <Text style={styles.heading} minPresenceAhead={48}>
+                  <Text
+                    data-edit-target={editId(s.id, "", "heading")}
+                    style={styles.heading}
+                    minPresenceAhead={48}
+                  >
                     {s.title}
                   </Text>
-                  {s.entries.filter(hasEntry).map(renderEntry)}
+                  {s.entries.filter(hasEntry).map((e) => renderEntry(e, s.id))}
                 </View>
               ))}
           </>

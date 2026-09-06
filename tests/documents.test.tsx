@@ -1,3 +1,8 @@
+import {
+  collectEditRegions,
+  editId,
+  type PdfRegion,
+} from "../src/preview-navigation";
 import { describe, it, expect, vi } from "vitest";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { sampleResume, newEntry, templates } from "../src/model";
@@ -48,7 +53,28 @@ describe("downloaded documents", () => {
       d.design.font = template.font;
       d.design.accent = template.accent;
       d.profile.name = "Alex Émery";
-      const buffer = await renderToBuffer(<ResumePDF doc={d} />);
+      let regions: PdfRegion[] = [];
+      const buffer = await renderToBuffer(
+        <ResumePDF
+          doc={d}
+          onLayout={(layout) => {
+            regions = collectEditRegions(layout);
+          }}
+        />,
+      );
+      const nameRegion = regions.find(
+        (r) => r.target === editId("profile", "", "name"),
+      )!;
+      expect(nameRegion).toBeDefined();
+      expect(nameRegion.x).toBeCloseTo(d.design.marginX, 0);
+      expect(nameRegion.y).toBeCloseTo(d.design.marginY, 0);
+      expect(
+        regions.some(
+          (r) =>
+            r.target ===
+            editId(d.sections[0].id, d.sections[0].entries[0].id, "bullet-0"),
+        ),
+      ).toBe(true);
       const task = getDocument({
         data: new Uint8Array(buffer),
         useSystemFonts: true,
@@ -64,6 +90,18 @@ describe("downloaded documents", () => {
           .map((x) => ("str" in x ? x.str : ""))
           .join(" ");
       }
+      const namePage = await pdf.getPage(nameRegion.page);
+      const nameItem = (await readPdfPageText(namePage)).items.find(
+        (i) => "str" in i && i.str.includes("Alex Émery"),
+      );
+      expect(nameItem && "transform" in nameItem).toBe(true);
+      if (nameItem && "transform" in nameItem) {
+        const baseline =
+          namePage.getViewport({ scale: 1 }).height - nameItem.transform[5];
+        expect(baseline).toBeGreaterThanOrEqual(nameRegion.y);
+        expect(baseline).toBeLessThan(nameRegion.y + nameRegion.height + 2);
+      }
+      expect(text).not.toContain("Made by Chai");
       expect(text).toContain("Alex Émery");
       expect(text).toContain("alex@example.com");
       expect(text).toContain("Automated monthly reporting");
@@ -88,11 +126,42 @@ describe("downloaded documents", () => {
         ),
       });
     d.sections[0].entries.at(-1)!.bullets.push("FINAL ACHIEVEMENT SENTINEL");
-    const buffer = await renderToBuffer(<ResumePDF doc={d} />);
+    let regions: PdfRegion[] = [];
+    const buffer = await renderToBuffer(
+      <ResumePDF
+        doc={d}
+        onLayout={(layout) => {
+          regions = collectEditRegions(layout);
+        }}
+      />,
+    );
     const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
     const task = getDocument({ data: new Uint8Array(buffer) });
     const pdf = await task.promise;
     expect(pdf.numPages).toBeGreaterThan(2);
+    const lastEntry = d.sections[0].entries.at(-1)!;
+    const region = regions.find(
+      (r) =>
+        r.target ===
+        editId(
+          d.sections[0].id,
+          lastEntry.id,
+          `bullet-${lastEntry.bullets.length - 1}`,
+        ),
+    )!;
+    expect(region).toBeDefined();
+    expect(region.page).toBeGreaterThan(1);
+    const regionPage = await pdf.getPage(region.page);
+    const item = (await readPdfPageText(regionPage)).items.find(
+      (i) => "str" in i && i.str.includes("FINAL ACHIEVEMENT SENTINEL"),
+    );
+    expect(item && "transform" in item).toBe(true);
+    if (item && "transform" in item) {
+      const baseline =
+        regionPage.getViewport({ scale: 1 }).height - item.transform[5];
+      expect(baseline).toBeGreaterThanOrEqual(region.y);
+      expect(baseline).toBeLessThan(region.y + region.height + 2);
+    }
     const page = await pdf.getPage(pdf.numPages);
     const text = (await page.getTextContent()).items
       .map((x) => ("str" in x ? x.str : ""))

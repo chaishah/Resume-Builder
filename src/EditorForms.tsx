@@ -1,3 +1,6 @@
+import { editId } from "./preview-navigation";
+import { WritingPrompts } from "./GuidedEditor";
+import { PresetManager } from "./WorkspaceTools";
 import { useState } from "react";
 import {
   Plus,
@@ -42,12 +45,14 @@ export function ProfileEditor({
         <Field
           label="Full name"
           autoComplete="name"
+          data-edit-target={editId("profile", "", "name")}
           value={doc.profile.name}
           onChange={(e) => set("name", e.target.value)}
           placeholder="Your name"
         />
         <Field
           label="Professional headline"
+          data-edit-target={editId("profile", "", "headline")}
           value={doc.profile.headline}
           onChange={(e) => set("headline", e.target.value)}
           placeholder="e.g. Data & Insights Analyst"
@@ -56,6 +61,7 @@ export function ProfileEditor({
           label="Email"
           type="email"
           autoComplete="email"
+          data-edit-target={editId("profile", "", "email")}
           value={doc.profile.email}
           onChange={(e) => set("email", e.target.value)}
           placeholder="you@example.com"
@@ -64,18 +70,21 @@ export function ProfileEditor({
           label="Phone"
           type="tel"
           autoComplete="tel"
+          data-edit-target={editId("profile", "", "phone")}
           value={doc.profile.phone}
           onChange={(e) => set("phone", e.target.value)}
           placeholder="04xx xxx xxx"
         />
         <Field
           label="City / state"
+          data-edit-target={editId("profile", "", "location")}
           value={doc.profile.location}
           onChange={(e) => set("location", e.target.value)}
           placeholder="Melbourne, VIC"
         />
         <Field
           label="Work rights (optional)"
+          data-edit-target={editId("profile", "", "workRights")}
           value={doc.profile.workRights}
           onChange={(e) => set("workRights", e.target.value)}
           placeholder="Only include if relevant"
@@ -85,6 +94,7 @@ export function ProfileEditor({
         label="Professional links"
         hint="One LinkedIn, portfolio or professional website link per line."
         rows={2}
+        data-edit-target={editId("profile", "", "links")}
         value={doc.profile.links}
         onChange={(e) => set("links", e.target.value)}
       />
@@ -92,10 +102,12 @@ export function ProfileEditor({
         label="Professional summary"
         hint="Try 3–5 lines: your experience, strengths and what you bring to the role."
         rows={6}
+        data-edit-target={editId("profile", "", "summary")}
         value={doc.profile.summary}
         onChange={(e) => set("summary", e.target.value)}
         placeholder="Who are you professionally, and what do you do well?"
       />
+      <WritingPrompts doc={doc} change={change} />
       <details className="help">
         <summary>What belongs in an Australian résumé?</summary>
         <p>
@@ -249,6 +261,7 @@ export function SectionEditor({
       </div>
       <Field
         label="Section heading"
+        data-edit-target={editId(section.id, "", "heading")}
         value={section.title}
         onChange={(e) =>
           update((s) => {
@@ -354,6 +367,7 @@ export function SectionEditor({
                       ? "Language"
                       : "Title / name"
             }
+            data-edit-target={editId(section.id, e.id, "title")}
             value={e.title}
             onChange={(ev) =>
               entry(e.id, (x) => {
@@ -370,6 +384,7 @@ export function SectionEditor({
                       ? "Institution"
                       : "Organisation / employer"
                   }
+                  data-edit-target={editId(section.id, e.id, "subtitle")}
                   value={e.subtitle}
                   onChange={(ev) =>
                     entry(e.id, (x) => {
@@ -433,6 +448,7 @@ export function SectionEditor({
                     : "Description (optional)"
             }
             rows={simple ? 4 : 3}
+            data-edit-target={editId(section.id, e.id, "description")}
             value={e.description}
             onChange={(ev) =>
               entry(e.id, (x) => {
@@ -461,6 +477,7 @@ export function SectionEditor({
                   <textarea
                     aria-label={`Achievement ${i + 1} for entry ${index + 1}`}
                     rows={2}
+                    data-edit-target={editId(section.id, e.id, `bullet-${i}`)}
                     value={b}
                     onChange={(ev) =>
                       entry(e.id, (x) => {
@@ -540,9 +557,11 @@ function XSmall() {
 export function TemplateEditor({
   doc,
   change,
+  temporary = false,
 }: {
   doc: Resume;
   change: Change;
+  temporary?: boolean;
 }) {
   return (
     <>
@@ -652,6 +671,30 @@ export function TemplateEditor({
           }
         />
       </div>
+      <div className="form-grid">
+        {(
+          [
+            ["marginX", "Side margins"],
+            ["marginY", "Top / bottom margins"],
+          ] as const
+        ).map(([key, label]) => (
+          <Field
+            key={key}
+            label={`${label} · ${Math.round((doc.design[key] * 25.4) / 72)} mm`}
+            type="range"
+            min={32}
+            max={64}
+            step={1}
+            value={doc.design[key]}
+            onChange={(e) =>
+              change((d) => {
+                d.design[key] = Number(e.target.value);
+              })
+            }
+          />
+        ))}
+      </div>
+      <PresetManager doc={doc} change={change} temporary={temporary} />
       <div className="field">
         <span>Accent colour</span>
         <div className="swatches">

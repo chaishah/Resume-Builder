@@ -1,3 +1,6 @@
+import { editLabels, type PdfRegion } from "./preview-navigation";
+import { contentWeights } from "./features";
+import type { Change } from "./EditorForms";
 import { lazy, Suspense, useEffect, useState } from "react";
 import {
   Download,
@@ -34,9 +37,11 @@ export function usePDF(
           doc.application.criteria,
         ],
   ]);
-  const [result, setResult] = useState<{ blob: Blob; key: string } | null>(
-      null,
-    ),
+  const [result, setResult] = useState<{
+      blob: Blob;
+      key: string;
+      regions: PdfRegion[];
+    } | null>(null),
     [error, setError] = useState(""),
     [retry, setRetry] = useState(0);
   useEffect(() => {
@@ -44,8 +49,8 @@ export function usePDF(
     const abort = new AbortController();
     const timeout = setTimeout(() => {
       void generatePdf(doc, kind, abort.signal)
-        .then((blob) => {
-          if (!abort.signal.aborted) setResult({ blob, key });
+        .then((generated) => {
+          if (!abort.signal.aborted) setResult({ ...generated, key });
         })
         .catch((e) => {
           if (e.name !== "AbortError" && !abort.signal.aborted)
@@ -60,6 +65,7 @@ export function usePDF(
   return {
     blob: result?.key === key ? result.blob : null,
     previous: result?.blob,
+    regions: result?.regions || [],
     error,
     retry: () => setRetry((r) => r + 1),
   };
@@ -67,11 +73,17 @@ export function usePDF(
 export function LivePreview({
   doc,
   onExport,
+  change,
+  onEdit,
+  onNavigate,
 }: {
   doc: Resume;
   onExport: () => void;
+  change: Change;
+  onEdit: (target: string) => void;
+  onNavigate: (section: string) => void;
 }) {
-  const { blob, previous, error, retry } = usePDF(doc);
+  const { blob, previous, error, retry, regions } = usePDF(doc);
   const [pages, setPages] = useState(0);
   return (
     <aside className="live-preview" aria-label="Résumé preview">
@@ -106,6 +118,9 @@ export function LivePreview({
                 <PdfPreview
                   blob={blob || previous}
                   onInfo={(i) => setPages(i.pages)}
+                  onEdit={blob ? onEdit : undefined}
+                  editLabels={editLabels(doc)}
+                  editRegions={regions}
                 />
               </Suspense>
             ) : (
@@ -128,6 +143,12 @@ export function LivePreview({
           or less relevant entries.
         </div>
       )}
+      <PageFitAssistant
+        doc={doc}
+        pages={blob ? pages : 0}
+        change={change}
+        onNavigate={onNavigate}
+      />
       <button className="primary full-button" onClick={onExport}>
         <Download size={17} />
         Review & download
@@ -413,5 +434,84 @@ export function ExportDialog({
         </>
       )}
     </Modal>
+  );
+}
+
+function PageFitAssistant({
+  doc,
+  pages,
+  change,
+  onNavigate,
+}: {
+  doc: Resume;
+  pages: number;
+  change: Change;
+  onNavigate: (id: string) => void;
+}) {
+  const weights = contentWeights(doc),
+    total = weights.reduce((sum, s) => sum + s.words, 0);
+  return (
+    <details className="page-fit tool-card">
+      <summary>
+        Page-fit assistant{" "}
+        {pages ? `· ${pages} / ${doc.design.pageLimit} pages` : ""}
+      </summary>
+      <p>
+        {!pages
+          ? "The latest page count will appear when the preview is ready."
+          : pages > doc.design.pageLimit
+            ? "Your résumé is above the target. Try a layout adjustment, or review the largest sections."
+            : "Your résumé is within the current page target."}
+      </p>
+      <p className="muted">
+        Content share by word count. Actual space varies with headings, bullets
+        and wrapping.
+      </p>
+      {weights.map((s) => (
+        <button
+          key={s.id}
+          className="fit-section"
+          onClick={() => onNavigate(s.id)}
+        >
+          <span>{s.title}</span>
+          <span>{s.words} words</span>
+          <progress
+            value={s.words}
+            max={Math.max(1, total)}
+            aria-label={`${s.title} content share`}
+          />
+        </button>
+      ))}
+      <div className="fit-actions">
+        <button
+          disabled={doc.design.spacing === "compact"}
+          onClick={() =>
+            change((d) => {
+              d.design.spacing = "compact";
+            })
+          }
+        >
+          Try compact spacing
+        </button>
+        <button
+          disabled={doc.design.marginX <= 32 && doc.design.marginY <= 32}
+          onClick={() =>
+            change((d) => {
+              d.design.marginX = Math.max(32, d.design.marginX - 4);
+              d.design.marginY = Math.max(32, d.design.marginY - 4);
+            })
+          }
+        >
+          Reduce margins a little
+        </button>
+        <button onClick={() => onNavigate("design")}>
+          All layout controls
+        </button>
+      </div>
+      <p className="muted">
+        Check the new PDF after each change. Use Undo to restore the previous
+        layout.
+      </p>
+    </details>
   );
 }

@@ -16,6 +16,7 @@ import {
   type ImportBlock,
 } from "./importer";
 import { uid, type Resume } from "./model";
+import ImportFieldReview from "./ImportFieldReview";
 type Props = {
   onClose: () => void;
   onImport: (d: Resume) => Promise<void>;
@@ -37,7 +38,8 @@ export default function ImportDialog({
     [blocks, setBlocks] = useState<ImportBlock[]>([]),
     [progress, setProgress] = useState(""),
     [error, setError] = useState(""),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [reviewDraft, setReviewDraft] = useState<Resume | null>(null);
   const abort = useRef<AbortController | null>(null);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => () => abort.current?.abort(), []);
@@ -111,7 +113,16 @@ export default function ImportDialog({
           {error}
         </div>
       )}
-      {busy ? (
+      {reviewDraft && extracted ? (
+        <ImportFieldReview
+          original={extracted.text}
+          initial={reviewDraft}
+          onCreate={async (doc) => {
+            await onImport(doc);
+            onClose();
+          }}
+        />
+      ) : busy ? (
         <>
           <Loading>{progress}</Loading>
           <button
@@ -270,9 +281,8 @@ export default function ImportDialog({
             </div>
           ))}
           <p className="muted">
-            Imported jobs remain grouped until you review them in the editor.
-            Use “Add entry” to separate roles; unused contact text is kept under
-            Import notes.
+            Assign the blocks first. Next, review individual fields beside the
+            original text and separate any grouped jobs.
           </p>
           <div className="modal-actions">
             <button
@@ -288,9 +298,7 @@ export default function ImportDialog({
               disabled={!blocks.some((b) => b.text.trim())}
               onClick={async () => {
                 try {
-                  setBusy(true);
-                  await onImport(importBlocks(blocks));
-                  onClose();
+                  setReviewDraft(importBlocks(blocks));
                 } catch (e) {
                   setError((e as Error).message);
                 } finally {
@@ -298,7 +306,7 @@ export default function ImportDialog({
                 }
               }}
             >
-              Create editable draft <ArrowRight size={16} />
+              Review individual fields <ArrowRight size={16} />
             </button>
           </div>
         </>

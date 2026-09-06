@@ -3,3 +3,5 @@ declare module "mammoth/mammoth.browser" {
     arrayBuffer: ArrayBufferLike;
   }): Promise<{ value: string; messages: unknown[] }>;
 }
+
+declare const __APP_BUILD__: string;

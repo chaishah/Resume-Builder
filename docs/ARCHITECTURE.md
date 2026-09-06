@@ -48,3 +48,19 @@ Vite's esbuild JSX transform is used directly so window-only development refresh
 Run tests, type checking and the production build. Review generated PDFs for text and pagination. Exercise import/review/edit/download with fictional files, and verify dependency security. Verify Pages at the real base path and check font/worker requests. For meaningful rendering changes, rerun the PDF fixtures rather than broad unrelated tests.
 
 Future schema changes require explicit migration fixtures and rollback planning. Future custom-origin deployments need a new browser backup/restore because browser storage is origin-specific. Do not globally clear origin storage or cache names shared with another application.
+
+## Editing and application tools
+
+`GuidedEditor.tsx` writes through the same change/undo/autosave path as the standard editor. It is an explicit opt-in at creation or through the editor navigation. Career-stage examples are local writing prompts and outlines, not generated claims.
+
+`WorkspaceTools.tsx` provides the application tracker, comparisons and template presets. Application rows are résumé records with application metadata; a new tracked application copies the chosen base and clears the previous employer’s application/letter details. Quick status changes use revision checks. Presets contain design settings and section-type order, with no personal résumé content.
+
+`ImportFieldReview.tsx` holds an editable review draft beside immutable extracted source text. Persistent workspace creation happens only after the user finishes reviewing. Files and source preview bytes remain temporary.
+
+`preview-navigation.ts` converts the PDF renderer’s completed layout into page rectangles. The renderer returns these rectangles alongside the generated Blob; preview clicks use stable section/entry/field keys to focus the matching control. This adapter uses `_INTERNAL__LAYOUT__DATA_` from the renderer’s `onRender` callback, so document tests verify its coordinates against emitted PDF text for all templates. Keep those tests when updating the PDF renderer. The rectangles are UI metadata and are not inserted as text or links in the downloaded PDF. Multi-page text fragments receive separate rectangles.
+
+Zoom changes resize the page immediately and defer canvas redraw briefly. The page-fit assistant uses actual PDF page counts and clearly labelled word-count shares; it never promises a fit or removes user content.
+
+Database version 2 adds the `presets` table and applies additive defaults to existing draft and snapshot records in a migration transaction. JSON backup format version 1 remains compatible through optional defaulted fields. Restore remaps parent relationships and includes presets in the same transaction.
+
+`useAppUpdate.ts` compares the running build with uncached `version.json` and observes waiting offline workers. The service worker never serves that version file from its cache. Updating flushes the résumé save queue first, is blocked while dialogs or temporary sessions are active, and reports save errors instead of refreshing past them.

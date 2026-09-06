@@ -8,18 +8,39 @@ import {
   type Snapshot,
   type CareerItem,
   type Backup,
+  type TemplatePreset,
 } from "./model";
-class ResumeDB extends Dexie {
+export class ResumeDB extends Dexie {
   documents!: Table<Resume, string>;
   snapshots!: Table<Snapshot, string>;
   career!: Table<CareerItem, string>;
-  constructor() {
-    super("chai-resume-studio-v1");
+  presets!: Table<TemplatePreset, string>;
+  constructor(name = "chai-resume-studio-v1") {
+    super(name);
     this.version(1).stores({
       documents: "id,updatedAt",
       snapshots: "id,resumeId,createdAt",
       career: "id,type",
     });
+    this.version(2)
+      .stores({
+        documents: "id,updatedAt",
+        snapshots: "id,resumeId,createdAt",
+        career: "id,type",
+        presets: "id,savedAt",
+      })
+      .upgrade(async (tx) => {
+        await tx
+          .table("documents")
+          .toCollection()
+          .modify((doc) => Object.assign(doc, resumeSchema.parse(doc)));
+        await tx
+          .table("snapshots")
+          .toCollection()
+          .modify((s) => {
+            s.document = resumeSchema.parse(s.document);
+          });
+      });
   }
 }
 export const db = new ResumeDB();
@@ -113,6 +134,7 @@ export async function exportBackup(current?: Resume): Promise<Backup> {
     documents,
     snapshots: await db.snapshots.toArray(),
     career: await db.career.toArray(),
+    presets: await db.presets.toArray(),
   };
 }
 export async function restoreBackup(backup: Backup) {
@@ -122,11 +144,13 @@ export async function restoreBackup(backup: Backup) {
     mapping.set(d.id, c.id);
     return c;
   });
+  for (const doc of docs) {
+    const source = backup.documents.find((d) => mapping.get(d.id) === doc.id);
+    doc.parentId = source?.parentId ? mapping.get(source.parentId) : undefined;
+  }
   await db.transaction(
     "rw",
-    db.documents,
-    db.snapshots,
-    db.career,
+    [db.documents, db.snapshots, db.career, db.presets],
     async () => {
       await db.documents.bulkPut(docs);
       await db.snapshots.bulkPut(
@@ -140,6 +164,9 @@ export async function restoreBackup(backup: Backup) {
           })),
       );
       await db.career.bulkPut(backup.career.map((c) => ({ ...c, id: uid() })));
+      await db.presets.bulkPut(
+        backup.presets.map((p) => ({ ...p, id: uid() })),
+      );
     },
   );
   return docs;

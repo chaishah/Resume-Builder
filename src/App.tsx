@@ -60,7 +60,10 @@ import {
   Versions,
 } from "./ToolsPanel";
 import type { DocumentKind } from "./document";
-import { isOfflineEnabled, enableOffline } from "./offline";
+import GuidedEditor, { WritingPrompts } from "./GuidedEditor";
+import { ApplicationTracker, CompareVersions } from "./WorkspaceTools";
+import { editSection } from "./preview-navigation";
+import { useAppUpdate } from "./useAppUpdate";
 const ImportDialog = lazy(() => import("./ImportDialog"));
 const Settings = lazy(() => import("./Settings"));
 const LivePreview = lazy(() =>
@@ -82,6 +85,7 @@ export default function App() {
       | "settings"
       | "add-section"
       | "library"
+      | "compare"
       | "versions"
       | null
     >(null),
@@ -93,8 +97,12 @@ export default function App() {
     [newTitle, setNewTitle] = useState(""),
     [newRole, setNewRole] = useState(""),
     [filter, setFilter] = useState(""),
-    [update, setUpdate] = useState<ServiceWorkerRegistration | null>(null),
+    [guided, setGuided] = useState(false),
+    [workspaceView, setWorkspaceView] = useState("resumes"),
+    [pendingEdit, setPendingEdit] = useState(""),
+    [updating, setUpdating] = useState(false),
     [online, setOnline] = useState(navigator.onLine);
+  const appUpdate = useAppUpdate();
   const backupInput = useRef<HTMLInputElement>(null);
   const initial = useRef(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
@@ -143,24 +151,21 @@ export default function App() {
     };
   }, []);
   useEffect(() => {
-    if (!isOfflineEnabled() || import.meta.env.DEV) return;
-    void enableOffline()
-      .then((reg) => {
-        if (reg.waiting) setUpdate(reg);
-        reg.addEventListener("updatefound", () => {
-          const installing = reg.installing;
-          installing?.addEventListener("statechange", () => {
-            if (
-              installing.state === "installed" &&
-              navigator.serviceWorker.controller
-            )
-              setUpdate(reg);
-          });
-        });
-        void reg.update();
-      })
-      .catch(() => {});
-  }, []);
+    if (!pendingEdit) return;
+    const frame = requestAnimationFrame(() => {
+      const field = [
+        ...document.querySelectorAll<HTMLElement>(
+          ".editor-panel [data-edit-target]",
+        ),
+      ].find((el) => el.dataset.editTarget === pendingEdit);
+      if (field) {
+        field.scrollIntoView({ block: "center", behavior: "smooth" });
+        field.focus({ preventScroll: true });
+        setPendingEdit("");
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pendingEdit, section, mobileTab]);
   const newDoc = async (doc: Resume) => {
     await ws.open(doc, true);
     setSection("profile");
@@ -274,29 +279,36 @@ export default function App() {
           </button>
         </div>
       </header>
-      {update && (
-        <div className="update-banner">
-          <span>A new version is ready. Save your work, then update.</span>
+      {appUpdate.available && (
+        <div className="update-banner" role="status">
+          <span>
+            {ws.temporary
+              ? "An update is ready. Download a backup and finish your temporary session before updating."
+              : "An update is ready. Save your draft and refresh to use it."}
+          </span>
           <button
-            onClick={() =>
+            disabled={
+              ws.temporary || updating || modal !== null || exportKind !== null
+            }
+            onClick={() => {
+              setUpdating(true);
               handle(
                 (async () => {
-                  await ws.save();
-                  if (ws.temporary) await backup();
-                  const waiting = update.waiting;
-                  if (!waiting) return;
-                  navigator.serviceWorker.addEventListener(
-                    "controllerchange",
-                    () => location.reload(),
-                    { once: true },
-                  );
-                  waiting.postMessage({ type: "SKIP_WAITING" });
+                  try {
+                    await ws.save();
+                    await appUpdate.activate();
+                  } finally {
+                    setUpdating(false);
+                  }
                 })(),
-              )
-            }
+              );
+            }}
           >
-            Save & update
+            {updating ? "Saving…" : "Save & update"}
           </button>
+          {ws.temporary && (
+            <button onClick={() => void backup()}>Download backup</button>
+          )}
         </div>
       )}
       {ws.error && (
@@ -315,230 +327,272 @@ export default function App() {
       )}
       {!d ? (
         <main id="main-content" tabIndex={-1} className="workspace">
-          <div className="workspace-intro">
-            <div>
-              <span className="eyebrow">
-                Australian résumés. Thoughtfully made.
-              </span>
-              <h1>
-                Your experience.
-                <br />
-                <em>A clear next step.</em>
-              </h1>
-              <p>
-                Bring your story together. Start fresh or pick up where you left
-                off.
-              </p>
-            </div>
-            <div className="workspace-note">
-              <span className="note-line" />
-              <p>
-                A good résumé makes room
-                <br />
-                for what matters.
-              </p>
-              <small>Simple templates · A4 · No watermark</small>
-            </div>
-          </div>
-          <div className="start-options">
+          <div className="workspace-switch segmented">
             <button
-              className="start-card primary-start"
-              onClick={() => {
-                setNewTitle("");
-                setNewRole("");
-                setModal("new");
+              className={workspaceView === "resumes" ? "active" : ""}
+              onClick={() => setWorkspaceView("resumes")}
+            >
+              My résumés
+            </button>
+            <button
+              className={workspaceView === "applications" ? "active" : ""}
+              onClick={() => setWorkspaceView("applications")}
+            >
+              Applications
+            </button>
+          </div>
+          {workspaceView === "applications" ? (
+            <ApplicationTracker
+              documents={ws.documents}
+              onOpen={(doc) =>
+                handle(ws.open(doc).then(() => navigate("tailor")))
+              }
+              onUpdate={ws.updateSaved}
+              onCreate={async (doc) => {
+                await newDoc(doc);
+                navigate("tailor");
               }}
-            >
-              <span className="start-icon">
-                <Plus size={24} />
-              </span>
-              <strong>Create a résumé</strong>
-              <span>Build your next chapter, one section at a time.</span>
-              <ArrowRight size={20} />
-            </button>
-            <button className="start-card" onClick={() => setModal("import")}>
-              <span className="start-icon">
-                <Upload size={24} />
-              </span>
-              <strong>Import a résumé</strong>
-              <span>Bring a PDF, Word document or scan.</span>
-              <ArrowRight size={20} />
-            </button>
-            <button className="start-card" onClick={() => setModal("paste")}>
-              <span className="start-icon">
-                <PenLine size={24} />
-              </span>
-              <strong>Start with your words</strong>
-              <span>Paste existing text and make it your own.</span>
-              <ArrowRight size={20} />
-            </button>
-          </div>
-          <div className="workspace-section-head">
-            <div>
-              <span className="eyebrow">Your workspace</span>
-              <h2>
-                {ws.documents.length
-                  ? "Pick up your story."
-                  : "Room for your first résumé."}
-              </h2>
-            </div>
-            {ws.documents.length > 2 && (
-              <input
-                aria-label="Search résumés"
-                className="search-input"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                placeholder="Find a résumé…"
-              />
-            )}
-            <button
-              className="text-button"
-              onClick={() => handle(newDoc(sampleResume()))}
-            >
-              Explore an example <ArrowRight size={16} />
-            </button>
-          </div>
-          {ws.documents.length ? (
-            <div className="document-grid">
-              {ws.documents
-                .filter((doc) =>
-                  [doc.title, doc.application.role, doc.application.company]
-                    .join(" ")
-                    .toLowerCase()
-                    .includes(filter.toLowerCase()),
-                )
-                .map((doc) => (
-                  <article key={doc.id} className="document-card">
-                    <button
-                      className="document-open"
-                      onClick={() => handle(ws.open(doc))}
-                    >
-                      <div
-                        className="document-thumbnail"
-                        style={{ borderTopColor: doc.design.accent }}
-                      >
-                        <strong>{doc.profile.name || "Your name"}</strong>
-                        <span>
-                          {doc.profile.headline || "A résumé in progress"}
-                        </span>
-                        <hr />
-                        {doc.sections
-                          .filter((s) => !s.hidden)
-                          .slice(0, 3)
-                          .map((s) => (
-                            <div key={s.id}>
-                              <b>{s.title}</b>
-                              <p>
-                                {s.entries[0]?.title ||
-                                  "Your experience belongs here."}
-                              </p>
-                            </div>
-                          ))}
-                      </div>
-                      <h3>{doc.title}</h3>
-                      <p>
-                        {doc.application.company ||
-                          templates.find((t) => t.id === doc.design.template)
-                            ?.name}{" "}
-                        · {doc.application.status}
-                      </p>
-                      <small>
-                        Edited{" "}
-                        {new Date(doc.updatedAt).toLocaleDateString("en-AU", {
-                          day: "numeric",
-                          month: "short",
-                        })}
-                      </small>
-                    </button>
-                    <div className="document-actions">
-                      <button
-                        className="text-button"
-                        onClick={() => handle(newDoc(duplicateResume(doc)))}
-                      >
-                        <Copy size={15} />
-                        Duplicate
-                      </button>
-                      <button
-                        className="icon-button danger-text"
-                        aria-label={`Delete ${doc.title}`}
-                        onClick={() => setDeleteId(doc.id)}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </article>
-                ))}
-            </div>
+            />
           ) : (
-            <div className="workspace-empty">
-              <div className="empty-symbol">
-                <FileText size={24} />
+            <>
+              <div className="workspace-intro">
+                <div>
+                  <span className="eyebrow">
+                    Australian résumés. Thoughtfully made.
+                  </span>
+                  <h1>
+                    Your experience.
+                    <br />
+                    <em>A clear next step.</em>
+                  </h1>
+                  <p>
+                    Bring your story together. Start fresh or pick up where you
+                    left off.
+                  </p>
+                </div>
+                <div className="workspace-note">
+                  <span className="note-line" />
+                  <p>
+                    A good résumé makes room
+                    <br />
+                    for what matters.
+                  </p>
+                  <small>Simple templates · A4 · No watermark</small>
+                </div>
               </div>
-              <div>
-                <h3>Your drafts will feel at home here.</h3>
-                <p>
-                  Saved in this browser. Download an editable backup whenever
-                  you want to move devices.
-                </p>
-              </div>
-              <button onClick={() => backupInput.current?.click()}>
-                Restore a backup
-              </button>
-            </div>
-          )}
-          <div className="template-teaser">
-            <div>
-              <span className="eyebrow">Five ways to make an impression</span>
-              <h2>
-                Subtle templates.
-                <br />
-                Substantial experience.
-              </h2>
-              <p>Choose the typography and spacing that suit your story.</p>
-            </div>
-            <div className="template-samples">
-              {templates.slice(0, 3).map((t) => (
+              <div className="start-options">
                 <button
-                  key={t.id}
+                  className="start-card primary-start"
                   onClick={() => {
-                    const doc = newResume();
-                    doc.design.template = t.id;
-                    doc.design.accent = t.accent;
-                    doc.design.font = t.font;
-                    handle(newDoc(doc));
+                    setNewTitle("");
+                    setNewRole("");
+                    setModal("new");
                   }}
                 >
-                  <div
-                    className={`mini-page ${t.id}`}
-                    style={{ color: t.accent }}
-                  >
-                    <strong
-                      style={{
-                        fontFamily:
-                          t.font === "Source Serif" ? "Georgia" : "inherit",
+                  <span className="start-icon">
+                    <Plus size={24} />
+                  </span>
+                  <strong>Create a résumé</strong>
+                  <span>Build your next chapter, one section at a time.</span>
+                  <ArrowRight size={20} />
+                </button>
+                <button
+                  className="start-card"
+                  onClick={() => setModal("import")}
+                >
+                  <span className="start-icon">
+                    <Upload size={24} />
+                  </span>
+                  <strong>Import a résumé</strong>
+                  <span>Bring a PDF, Word document or scan.</span>
+                  <ArrowRight size={20} />
+                </button>
+                <button
+                  className="start-card"
+                  onClick={() => setModal("paste")}
+                >
+                  <span className="start-icon">
+                    <PenLine size={24} />
+                  </span>
+                  <strong>Start with your words</strong>
+                  <span>Paste existing text and make it your own.</span>
+                  <ArrowRight size={20} />
+                </button>
+              </div>
+              <div className="workspace-section-head">
+                <div>
+                  <span className="eyebrow">Your workspace</span>
+                  <h2>
+                    {ws.documents.length
+                      ? "Pick up your story."
+                      : "Room for your first résumé."}
+                  </h2>
+                </div>
+                {ws.documents.length > 2 && (
+                  <input
+                    aria-label="Search résumés"
+                    className="search-input"
+                    value={filter}
+                    onChange={(e) => setFilter(e.target.value)}
+                    placeholder="Find a résumé…"
+                  />
+                )}
+                <button
+                  className="text-button"
+                  onClick={() => handle(newDoc(sampleResume()))}
+                >
+                  Explore an example <ArrowRight size={16} />
+                </button>
+              </div>
+              {ws.documents.length ? (
+                <div className="document-grid">
+                  {ws.documents
+                    .filter((doc) =>
+                      [doc.title, doc.application.role, doc.application.company]
+                        .join(" ")
+                        .toLowerCase()
+                        .includes(filter.toLowerCase()),
+                    )
+                    .map((doc) => (
+                      <article key={doc.id} className="document-card">
+                        <button
+                          className="document-open"
+                          onClick={() => handle(ws.open(doc))}
+                        >
+                          <div
+                            className="document-thumbnail"
+                            style={{ borderTopColor: doc.design.accent }}
+                          >
+                            <strong>{doc.profile.name || "Your name"}</strong>
+                            <span>
+                              {doc.profile.headline || "A résumé in progress"}
+                            </span>
+                            <hr />
+                            {doc.sections
+                              .filter((s) => !s.hidden)
+                              .slice(0, 3)
+                              .map((s) => (
+                                <div key={s.id}>
+                                  <b>{s.title}</b>
+                                  <p>
+                                    {s.entries[0]?.title ||
+                                      "Your experience belongs here."}
+                                  </p>
+                                </div>
+                              ))}
+                          </div>
+                          <h3>{doc.title}</h3>
+                          <p>
+                            {doc.application.company ||
+                              templates.find(
+                                (t) => t.id === doc.design.template,
+                              )?.name}{" "}
+                            · {doc.application.status}
+                          </p>
+                          <small>
+                            Edited{" "}
+                            {new Date(doc.updatedAt).toLocaleDateString(
+                              "en-AU",
+                              {
+                                day: "numeric",
+                                month: "short",
+                              },
+                            )}
+                          </small>
+                        </button>
+                        <div className="document-actions">
+                          <button
+                            className="text-button"
+                            onClick={() => handle(newDoc(duplicateResume(doc)))}
+                          >
+                            <Copy size={15} />
+                            Duplicate
+                          </button>
+                          <button
+                            className="icon-button danger-text"
+                            aria-label={`Delete ${doc.title}`}
+                            onClick={() => setDeleteId(doc.id)}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                </div>
+              ) : (
+                <div className="workspace-empty">
+                  <div className="empty-symbol">
+                    <FileText size={24} />
+                  </div>
+                  <div>
+                    <h3>Your drafts will feel at home here.</h3>
+                    <p>
+                      Saved in this browser. Download an editable backup
+                      whenever you want to move devices.
+                    </p>
+                  </div>
+                  <button onClick={() => backupInput.current?.click()}>
+                    Restore a backup
+                  </button>
+                </div>
+              )}
+              <div className="template-teaser">
+                <div>
+                  <span className="eyebrow">
+                    Five ways to make an impression
+                  </span>
+                  <h2>
+                    Subtle templates.
+                    <br />
+                    Substantial experience.
+                  </h2>
+                  <p>Choose the typography and spacing that suit your story.</p>
+                </div>
+                <div className="template-samples">
+                  {templates.slice(0, 3).map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => {
+                        const doc = newResume();
+                        doc.design.template = t.id;
+                        doc.design.accent = t.accent;
+                        doc.design.font = t.font;
+                        handle(newDoc(doc));
                       }}
                     >
-                      Your name
-                    </strong>
-                    <span>A clear next step</span>
-                    <hr />
-                    <b>Experience</b>
-                    <i />
-                    <i />
-                    <i className="short" />
-                    <b>Education</b>
-                    <i />
-                    <i />
-                  </div>
-                  <span>
-                    {t.name} <ArrowRight size={13} />
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
+                      <div
+                        className={`mini-page ${t.id}`}
+                        style={{ color: t.accent }}
+                      >
+                        <strong
+                          style={{
+                            fontFamily:
+                              t.font === "Source Serif" ? "Georgia" : "inherit",
+                          }}
+                        >
+                          Your name
+                        </strong>
+                        <span>A clear next step</span>
+                        <hr />
+                        <b>Experience</b>
+                        <i />
+                        <i />
+                        <i className="short" />
+                        <b>Education</b>
+                        <i />
+                        <i />
+                      </div>
+                      <span>
+                        {t.name} <ArrowRight size={13} />
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
           <footer className="workspace-footer">
-            <span>Made with care, by Chai.</span>
+            <span>Made by Chai · Built for your next chapter.</span>
             <button
               className="text-button"
               onClick={() => setModal("settings")}
@@ -745,16 +799,38 @@ export default function App() {
                 <History size={18} />
                 Versions & snapshots
               </button>
+              <button onClick={() => setModal("compare")}>
+                <Copy size={18} />
+                Compare versions
+              </button>
+              <button
+                className={section === "guide" ? "active" : ""}
+                onClick={() => navigate("guide")}
+              >
+                <BookOpen size={18} />
+                Optional guided editor
+              </button>
               <div className="nav-foot">
                 <p>A little clarity goes a long way.</p>
                 <small>Your next chapter starts here.</small>
               </div>
             </nav>
             <main id="main-content" tabIndex={-1} className="editor-panel">
-              {section === "profile" ? (
+              {section === "guide" ? (
+                <GuidedEditor
+                  key={d.id}
+                  doc={d}
+                  change={ws.change}
+                  onExit={() => navigate("profile")}
+                />
+              ) : section === "profile" ? (
                 <ProfileEditor doc={d} change={ws.change} />
               ) : section === "design" ? (
-                <TemplateEditor doc={d} change={ws.change} />
+                <TemplateEditor
+                  doc={d}
+                  change={ws.change}
+                  temporary={ws.temporary}
+                />
               ) : section === "tailor" ? (
                 <TailorEditor
                   doc={d}
@@ -794,13 +870,20 @@ export default function App() {
                   </p>
                 </>
               ) : active ? (
-                <SectionEditor
-                  key={active.id}
-                  section={active}
-                  change={ws.change}
-                  onMessage={notify}
-                  temporary={ws.temporary}
-                />
+                <>
+                  <WritingPrompts
+                    doc={d}
+                    change={ws.change}
+                    sectionType={active.type}
+                  />
+                  <SectionEditor
+                    key={active.id}
+                    section={active}
+                    change={ws.change}
+                    onMessage={notify}
+                    temporary={ws.temporary}
+                  />
+                </>
               ) : (
                 <ProfileEditor doc={d} change={ws.change} />
               )}
@@ -812,9 +895,32 @@ export default function App() {
                 </div>
               }
             >
-              <LivePreview doc={d} onExport={() => setExportKind("resume")} />
+              <LivePreview
+                doc={d}
+                onExport={() => setExportKind("resume")}
+                change={ws.change}
+                onNavigate={navigate}
+                onEdit={(target) => {
+                  const sectionId = editSection(target);
+                  if (sectionId) {
+                    navigate(sectionId);
+                    setPendingEdit(target);
+                  }
+                }}
+              />
             </Suspense>
           </div>
+          <footer className="editor-footer">
+            <span>Made by Chai</span>
+            <span>Thoughtfully built for your next chapter.</span>
+            <a
+              href="https://github.com/chaishah/Resume-Builder"
+              target="_blank"
+              rel="noreferrer"
+            >
+              View the project
+            </a>
+          </footer>
         </>
       )}
       <input
@@ -889,6 +995,14 @@ export default function App() {
             <option value="change">Changing careers</option>
             <option value="returning">Returning to work</option>
           </Select>
+          <label className="inline-check">
+            <input
+              type="checkbox"
+              checked={guided}
+              onChange={(e) => setGuided(e.target.checked)}
+            />
+            Use the optional step-by-step guide
+          </label>
           <div className="modal-actions">
             <button onClick={() => setModal(null)}>Cancel</button>
             <button
@@ -897,7 +1011,12 @@ export default function App() {
                 const doc = newResume(stage);
                 doc.title = newTitle.trim() || "My next opportunity";
                 doc.application.role = newRole;
-                handle(newDoc(doc).then(() => setModal(null)));
+                handle(
+                  newDoc(doc).then(() => {
+                    setModal(null);
+                    if (guided) navigate("guide");
+                  }),
+                );
               }}
             >
               Create résumé <ArrowRight size={16} />
@@ -937,6 +1056,13 @@ export default function App() {
           onClose={() => setModal(null)}
           onMessage={notify}
           temporary={ws.temporary}
+        />
+      )}
+      {d && modal === "compare" && (
+        <CompareVersions
+          doc={d}
+          documents={ws.documents}
+          onClose={() => setModal(null)}
         />
       )}
       {d && modal === "versions" && (

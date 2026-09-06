@@ -72,6 +72,20 @@ export function TailorEditor({
           label="Application deadline"
           type="date"
           value={doc.application.deadline}
+          onInput={(e) => {
+            const value = e.currentTarget.value;
+            if (value !== doc.application.deadline)
+              change((d) => {
+                d.application.deadline = value;
+              });
+          }}
+          onBlur={(e) => {
+            const value = e.currentTarget.value;
+            if (value !== doc.application.deadline)
+              change((d) => {
+                d.application.deadline = value;
+              });
+          }}
           onChange={(e) =>
             change((d) => {
               d.application.deadline = e.target.value;
@@ -106,6 +120,17 @@ export function TailorEditor({
           ))}
         </Select>
       </div>
+      <Field
+        label="Job advertisement link"
+        type="url"
+        value={doc.application.jobUrl}
+        placeholder="https://…"
+        onChange={(e) =>
+          change((d) => {
+            d.application.jobUrl = e.target.value;
+          })
+        }
+      />
       <Area
         label="Job advertisement"
         rows={9}

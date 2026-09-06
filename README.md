@@ -6,16 +6,23 @@ A browser-based Australian résumé builder with subtle templates, reviewable im
 
 - Five single-column templates: Essential, Slate, Editorial, Graduate and Professional.
 - A4 PDFs with selectable text, embedded fonts, links and controlled page breaks.
-- PDF preview generated from the same document blob used for downloading.
+- PDF preview generated from the same document blob used for downloading, with tap-to-edit targets, pinch/button zoom, fit-to-width and page navigation.
+- Optional one-question-at-a-time guidance; the regular editor is the default.
+- Career-stage writing prompts for graduates, experienced applicants, career changers and people returning to work.
+- A page-fit assistant with current PDF page counts, content-share indicators and reversible layout adjustments.
+- Custom margin controls and saved template presets, including section order.
 - Editable Word DOCX and plain-text exports.
 - Contact details, summary, experience, education, skills, projects, certifications, volunteering, awards, languages, referees, publications and custom sections.
 - Section and entry ordering, visibility, custom headings, dates and achievement bullets.
 - Local autosave, undo/redo, conflict detection, independent variants, snapshots and JSON backup/restore.
-- PDF, DOCX, TXT/Markdown and pasted-text import with a correction step and preserved unassigned content.
+- PDF, DOCX, TXT/Markdown and pasted-text import with section assignment, side-by-side source/field correction and preserved unassigned content.
 - Local English OCR for PNG/JPEG and scanned PDF pages, including mixed text/scan PDFs.
 - Career Library, guided Achievement Workshop, job-ad term coverage and a word-count page budget.
 - Matching cover letters and structured selection-criteria responses, exported to PDF/DOCX/TXT.
-- Local application notes, deadline and status. No automatic notifications or job submissions.
+- An application tracker with job links, closing dates, status filters and separate linked résumé versions.
+- Field-by-field comparison against a master résumé or another application version.
+- A save-before-refresh update notification for online sessions, plus the existing optional offline update flow.
+- “Made by Chai” credits in the workspace and editor footers. Downloaded résumés remain watermark-free.
 - Optional offline installation with a save-before-update flow; scan assets have a separate offline download.
 - Temporary sessions, app-specific clear-data controls and no analytics.
 
@@ -50,11 +57,11 @@ npm run preview
 
 `postinstall` copies licensed fonts, the PDF reader’s resources and OCR binaries from installed packages into `public`. These generated assets are ignored in source control and included in the build. The lockfile is committed for reproducible installs.
 
-The production build also generates the service worker and offline asset lists. Offline installation requires HTTPS (or localhost); ordinary HTTP development previews do not offer installation.
+The production build also generates the service worker, offline asset lists and `version.json`. Update checks run on opening/focusing the app and every five minutes while active. Temporary sessions are protected from automatic refresh; the user must save their work before updating. Offline installation requires HTTPS (or localhost); ordinary HTTP development previews do not offer installation.
 
 ## Import behaviour and limits
 
-Imports recover content into editable sections; they do not recreate the uploaded layout. Rules identify likely section headings and contact details. Jobs and qualifications with uncertain boundaries stay grouped for review. Split blocks in the import review, then edit titles, employers and dates in the editor. Unassigned contact material is preserved in Import notes and excluded from exported applications.
+Imports recover content into editable sections; they do not recreate the uploaded layout. Rules identify likely section headings and contact details. Jobs and qualifications with uncertain boundaries stay grouped for review. Split blocks in the import review, then correct titles, employers and dates beside the original extracted text before creating the draft. Unassigned contact material is preserved in Import notes and excluded from exported applications.
 
 - One document at a time; 10 MB document limit; up to 20 PDF pages.
 - Backup limit: 15 MB. Invalid or newer-version backups are rejected before storage writes.
@@ -72,7 +79,7 @@ Drafts are browser-local and are not automatically synced. Browser cleanup, priv
 
 Multiple GitHub Pages projects on the same hostname share a browser origin. Namespacing prevents accidental collisions, not security isolation. A separate custom origin is a stronger boundary if needed. Delete-data controls deliberately remove only this app’s database/settings/caches.
 
-Backups restore as new copies in a transaction. Concurrent stale edits cannot overwrite newer saves. The latest 30 snapshots per résumé are kept. A future schema migration must back up and preserve old data on failure; version 1 currently requires no legacy migration.
+Backups restore as new copies in a transaction. Concurrent stale edits cannot overwrite newer saves. The latest 30 snapshots per résumé are kept. Database version 2 adds presets and migrates existing drafts/snapshots with defaults for margins, career stage and job links. Existing content and revision numbers are preserved. Version 1 JSON backups remain supported; new backups include presets and remap master/application links when restored.
 
 ## Document expectations
 

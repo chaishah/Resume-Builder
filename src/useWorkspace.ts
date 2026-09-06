@@ -177,6 +177,20 @@ export function useWorkspace() {
     if (!temp.current) await removeResume(id);
     setDocuments((prev) => prev.filter((d) => d.id !== id));
   };
+  const updateSaved = async (
+    doc: Resume,
+    status: Resume["application"]["status"],
+  ) => {
+    await save();
+    const next = structuredClone(doc);
+    next.application.status = status;
+    if (temp.current) {
+      setDocuments((prev) => prev.map((d) => (d.id === doc.id ? next : d)));
+      return;
+    }
+    const stored = await saveResume(next, doc.revision);
+    setDocuments((prev) => prev.map((d) => (d.id === stored.id ? stored : d)));
+  };
   const recover = async () => {
     if (!draft) return;
     await queue.current.catch(() => {});
@@ -204,5 +218,6 @@ export function useWorkspace() {
     refresh,
     recover,
     remove,
+    updateSaved,
   };
 }

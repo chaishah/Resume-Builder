@@ -1,10 +1,11 @@
+import type { PdfRegion } from "./preview-navigation";
 import { dateRange, hasEntry, safeLink, toText, type Resume } from "./model";
 import type { DocumentKind } from "./document";
 export function generatePdf(
   doc: Resume,
   kind: DocumentKind,
   signal: AbortSignal,
-): Promise<Blob> {
+): Promise<{ blob: Blob; regions: PdfRegion[] }> {
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL("./pdf.worker.tsx", import.meta.url), {
       type: "module",
@@ -34,7 +35,7 @@ export function generatePdf(
     worker.onmessage = (e) => {
       cleanup();
       if (e.data.error) reject(new Error(e.data.error));
-      else resolve(e.data.blob);
+      else resolve({ blob: e.data.blob, regions: e.data.regions || [] });
     };
     worker.onerror = (event) => {
       console.error(
@@ -186,7 +187,12 @@ export async function generateDocx(doc: Resume, kind: DocumentKind = "resume") {
         properties: {
           page: {
             size: { width: 11906, height: 16838 },
-            margin: { top: 860, bottom: 860, left: 960, right: 960 },
+            margin: {
+              top: Math.round(doc.design.marginY * 20),
+              bottom: Math.round(doc.design.marginY * 20),
+              left: Math.round(doc.design.marginX * 20),
+              right: Math.round(doc.design.marginX * 20),
+            },
           },
         },
         footers: {
